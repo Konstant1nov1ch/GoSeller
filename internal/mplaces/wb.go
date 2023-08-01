@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/playwright-community/playwright-go"
+	"gorm.io/gorm"
 	"io"
 	"log"
 	"net/http"
 	"regexp"
+	"time"
 )
 
-func ProcessURL(url string) {
+func ProcessURL(url string, db *gorm.DB) {
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("could not launch playwright: %v", err)
@@ -88,8 +90,73 @@ func ProcessURL(url string) {
 	product.ID = int64(int(productData["id"].(float64)))
 	product.Name = productData["name"].(string)
 	product.SalePriceU = int64(int(productData["salePriceU"].(float64)))
+
+	// После декодирования JSON, сохраняем информацию о товаре в базе данных
+	if err := saveProductToDB(&product, db); err != nil {
+		fmt.Println("Ошибка при сохранении товара в базе данных:", err)
+	}
+
 	//// Выводим данные из структуры
 	fmt.Println("ID:", product.ID)
 	fmt.Println("Name:", product.Name)
 	fmt.Println("SalePrices: ", product.SalePriceU)
+
+	// Раз в 12 часов обновляем информацию о товаре в базе данных
+	ticker := time.NewTicker(12 * time.Hour)
+	for range ticker.C {
+		if err := updateProductInfo(&product, db); err != nil {
+			fmt.Println("Ошибка при обновлении информации о товаре в базе данных:", err)
+		}
+	}
+}
+func saveProductToDB(product *model.Product, db *gorm.DB) error {
+	// Проверяем, есть ли уже такой товар в базе данных
+	var existingProduct model.Product
+	result := db.Where("id = ?", product.ID).First(&existingProduct)
+	if result.Error != nil && result.Error != gorm.ErrRecordNotFound {
+		return result.Error
+	}
+
+	// Если товар уже есть в базе данных, обновляем его информацию
+	if result.RowsAffected > 0 {
+		existingProduct.Name = product.Name
+		existingProduct.SalePriceU = product.SalePriceU
+		return db.Save(&existingProduct).Error
+	}
+
+	// Если товара нет в базе данных, создаем новую запись
+	return db.Create(product).Error
+}
+
+// Функция для обновления информации о товаре
+func updateProductInfo(product *model.Product, db *gorm.DB) error {
+	// Выполняем GET запрос для обновления информации о товаре
+	response, err := http.Get(fmt.Sprintf("https://card.wb.ru/cards/detail?id=%d", product.ID))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	// Читаем содержимое ответа
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+
+	// Создаем переменную для декодирования JSON
+	var data map[string]interface{}
+
+	// Декодируем JSON
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return err
+	}
+
+	// Обновляем информацию о товаре
+	productData := data["data"].(map[string]interface{})["products"].([]interface{})[0].(map[string]interface{})
+	product.Name = productData["name"].(string)
+	product.SalePriceU = int64(int(productData["salePriceU"].(float64)))
+
+	// Сохраняем обновленную информацию в базе данных
+	return saveProductToDB(product, db)
 }

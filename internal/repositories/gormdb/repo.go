@@ -20,6 +20,7 @@ func (r *ProductGorm) Create(ctx context.Context, s *model.Product) error {
 	return r.db.WithContext(ctx).Create(s).Error
 }
 
+// ToDo гет и делит для бота
 func (r *ProductGorm) Get(ctx context.Context, s *model.Product, operation string) (int64, error) {
 	return 0, nil
 }
