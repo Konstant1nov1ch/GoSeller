@@ -102,12 +102,27 @@ func ProcessURL(url string, db *gorm.DB) {
 	fmt.Println("SalePrices: ", product.SalePriceU)
 
 	// Раз в 12 часов обновляем информацию о товаре в базе данных
-	ticker := time.NewTicker(12 * time.Hour)
-	for range ticker.C {
-		if err := updateProductInfo(&product, db); err != nil {
-			fmt.Println("Ошибка при обновлении информации о товаре в базе данных:", err)
+	ticker := time.NewTicker(20 * time.Second)
+	done := make(chan bool)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := updateProductInfo(&product, db); err != nil {
+					fmt.Println("Ошибка при обновлении информации о товаре в базе данных:", err)
+				}
+			}
 		}
-	}
+	}()
+
+	// Ожидаем завершения обработки и обновления для данного URL
+	time.Sleep(10 * time.Minute)
+
+	// Завершаем горутину с обновлением информации
+	done <- true
 }
 func saveProductToDB(product *model.Product, db *gorm.DB) error {
 	// Проверяем, есть ли уже такой товар в базе данных
@@ -131,7 +146,7 @@ func saveProductToDB(product *model.Product, db *gorm.DB) error {
 // Функция для обновления информации о товаре
 func updateProductInfo(product *model.Product, db *gorm.DB) error {
 	// Выполняем GET запрос для обновления информации о товаре
-	response, err := http.Get(fmt.Sprintf("https://card.wb.ru/cards/detail?id=%d", product.ID))
+	response, err := http.Get(fmt.Sprintf("https://card.wb.ru/cards/detail?appType=1&curr=rub&dest=-1257786&regions=80,38,83,4,64,33,68,70,30,40,86,75,69,22,1,31,66,110,48,71,114&spp=0&nm=%d", product.ID))
 	if err != nil {
 		return err
 	}
@@ -152,10 +167,24 @@ func updateProductInfo(product *model.Product, db *gorm.DB) error {
 		return err
 	}
 
-	// Обновляем информацию о товаре
-	productData := data["data"].(map[string]interface{})["products"].([]interface{})[0].(map[string]interface{})
-	product.Name = productData["name"].(string)
-	product.SalePriceU = int64(int(productData["salePriceU"].(float64)))
+	// Проверяем наличие поля "data" в JSON
+	if _, ok := data["data"]; !ok {
+		return fmt.Errorf("поле 'data' отсутствует в JSON")
+	}
+
+	// Получаем нужные поля из JSON и сохраняем в структуру Product
+	productData, ok := data["data"].(map[string]interface{})["products"].([]interface{})
+	if !ok || len(productData) == 0 {
+		return fmt.Errorf("неверный формат JSON или отсутствуют данные о товаре")
+	}
+
+	productInfo, ok := productData[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("неверный формат JSON или отсутствуют данные о товаре")
+	}
+
+	product.Name = productInfo["name"].(string)
+	product.SalePriceU = int64(productInfo["salePriceU"].(float64))
 
 	// Сохраняем обновленную информацию в базе данных
 	return saveProductToDB(product, db)

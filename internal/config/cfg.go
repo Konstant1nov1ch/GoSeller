@@ -7,8 +7,7 @@ import (
 
 // Структура для хранения настроек из окружения или установленных по умолчанию
 type Config struct {
-	Port int `env:"SERVER_PORT" envDefault:"13005"`
-
+	Port     int    `env:"SERVER_PORT" envDefault:"13005"`
 	PgPort   string `env:"PG_PORT" envDefault:"5432"`
 	PgHost   string `env:"PG_HOST" envDefault:"127.0.0.1"`
 	PgDBName string `env:"PG_DB_NAME" envDefault:"db"`

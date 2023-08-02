@@ -5,14 +5,18 @@ import (
 	bootstrap "GoShopper/internal/db"
 	"GoShopper/internal/mplaces"
 	"fmt"
+	"gorm.io/gorm"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 func main() {
+	// Вводим URL
 	url := ""
 	fmt.Scan(&url)
 	url = strings.Trim(url, " ")
+
 	// Проверяем наличие "www.wildberries.ru/catalog" во введенной строке
 	if strings.Contains(url, "www.wildberries.ru/catalog") {
 		// Проверяем доступность URL с помощью HEAD-запроса
@@ -39,10 +43,27 @@ func main() {
 		}
 
 		// Запускаем обработку URL
-		mplaces.ProcessURL(url, db)
+		processMultipleURLs(url, db)
 	} else {
 		fmt.Println("Ошибка: Введенный URL не соответствует требуемому формату.")
 	}
+}
+
+func processMultipleURLs(url string, db *gorm.DB) {
+	// Разбиваем URL по запятым, чтобы обрабатывать несколько товаров
+	urls := strings.Split(url, ",")
+	var wg sync.WaitGroup
+
+	for _, u := range urls {
+		u = strings.TrimSpace(u)
+		wg.Add(1)
+		go func(u string) {
+			defer wg.Done()
+			mplaces.ProcessURL(u, db)
+		}(u)
+	}
+
+	wg.Wait()
 }
 
 // Функция для проверки доступности URL с помощью HEAD-запроса
